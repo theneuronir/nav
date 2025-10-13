@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="fa">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>مسیریاب ساده — فیلتر GPS دینامیک</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-sA+e2Hk7rFzY5rR+j7gH5Nw1bJmA8kQ1p3b0h+gI2Hk=" crossorigin=""/>
+
+  <style>
+    body { margin:0; font-family: system-ui, Tahoma, Arial, "Helvetica Neue", sans-serif; direction: rtl; }
+    #app { display: grid; grid-template-columns: 1fr 380px; gap: 8px; height: 100vh; padding: 8px; box-sizing: border-box; }
+    #map { width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+    #panel { background:#fff; border-radius:8px; padding:12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); overflow:auto; }
+    h1 { margin:0 0 8px 0; font-size:18px; }
+    label { display:block; margin-top:10px; font-size:13px; }
+    .row { display:flex; gap:8px; align-items:center; margin-top:6px; }
+    .info { font-size:13px; line-height:1.4; color:#222; }
+    input[type="range"] { width:100%; }
+    button { padding:8px 10px; border-radius:6px; border:1px solid #ddd; background:#f7f7f7; cursor:pointer; }
+    .small { font-size:12px; color:#555; }
+    pre { background:#f6f6f8; padding:8px; border-radius:6px; max-height:200px; overflow:auto; font-size:12px; }
+    .status { margin-top:8px; padding:8px; border-radius:6px; background:#fafafa; font-size:13px; }
+    .legend { margin-top:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .dot { width:12px; height:12px; border-radius:50%; display:inline-block; margin-left:6px; }
+    .raw { background:#ff4d4f; }
+    .filtered { background:#1890ff; }
+    .anchor { background:#52c41a; }
+    footer { margin-top:12px; font-size:12px; color:#666; }
+    @media (max-width:900px) {
+      #app { grid-template-columns: 1fr; grid-auto-rows: 60vh auto; }
+      #panel { height: auto; max-height:40vh; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="map"></div>
+
+    <div id="panel">
+      <h1>مسیریاب ساده — فیلتر GPS دینامیک</h1>
+
+      <div class="info">
+        <div class="row">
+          <strong>حالت فیلتر:</strong>
+          <select id="mode">
+            <option value="reject">رد جهش‌های بزرگ (Reject)</option>
+            <option value="clamp">کِلمپ کردن به آستانه (Clamp)</option>
+          </select>
+        </div>
+
+        <label for="threshold">حداکثر جهش مجاز (متر): <span id="thresholdValue">200</span> m</label>
+        <input id="threshold" type="range" min="10" max="2000" step="10" value="200">
+
+        <div class="row">
+          <label><input id="useSmoothing" type="checkbox"> فعال کردن هموارسازی نمایی (Exponential Smoothing)</label>
+        </div>
+
+        <label for="sFactor">نرخ هموارسازی (alpha: 0-1): <span id="sFactorValue">0.25</span></label>
+        <input id="sFactor" type="range" min="0" max="1" step="0.01" value="0.25">
+
+        <div class="row">
+          <button id="startBtn">شروع ردیابی</button>
+          <button id="stopBtn" disabled>توقف ردیابی</button>
+          <button id="clearBtn">پاک کردن مسیرها</button>
+        </div>
+
+        <div class="status" id="status">وضعیت: آماده</div>
+
+        <div style="margin-top:10px;">
+          <strong>اطلاعات جاری:</strong>
+          <div class="small" id="rawInfo">GPS خام: —</div>
+          <div class="small" id="filteredInfo">GPS فیلترشده: —</div>
+          <div class="small" id="accuracyInfo">دقت (accuracy): —</div>
+          <div class="small" id="distInfo">فاصله از آخرین قبول‌شده: —</div>
+        </div>
+
+        <div class="legend">
+          <div><span class="dot raw"></span> نقاط خام</div>
+          <div><span class="dot filtered"></span> نقاط فیلترشده</div>
+          <div><span class="dot anchor"></span> آخرین نقطه قبول‌شده</div>
+        </div>
+
+        <label style="margin-top:8px">رویدادها / لاگ:</label>
+        <pre id="log" aria-live="polite">—</pre>
+
+        <footer>نکته: برای کار صحیح، مجوز موقعیت را به مرورگر بدهید. این صفحه از <em>Geolocation API</em> و <em>Leaflet</em> استفاده می‌کند.</footer>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-o9N1j7k3p2gCw6r0q+0i3Hqgq7bV3z9k6Qf4y+FJ0X0=" crossorigin=""></script>
+
+  <script>
+    // ========== Helpers ==========
+    function toRad(d){ return d * Math.PI / 180; }
+    function toDeg(r){ return r * 180 / Math.PI; }
+
+    // Haversine distance (meters)
+    function distanceMeters(a, b){
+      if(!a || !b) return Infinity;
+      const R = 6371000;
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lng - a.lng);
+      const lat1 = toRad(a.lat);
+      const lat2 = toRad(b.lat);
+      const sinDlat = Math.sin(dLat/2), sinDlon = Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(sinDlat*sinDlat + Math.cos(lat1)*Math.cos(lat2)*sinDlon*sinDlon), Math.sqrt(1 - (sinDlat*sinDlat + Math.cos(lat1)*Math.cos(lat2)*sinDlon*sinDlon)));
+      return R * c;
+    }
+
+    // Bearing from a to b (degrees)
+    function bearingDeg(a, b){
+      const y = Math.sin(toRad(b.lng - a.lng)) * Math.cos(toRad(b.lat));
+      const x = Math.cos(toRad(a.lat))*Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.cos(toRad(b.lng - a.lng));
+      return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    // Destination point from a, given bearing (deg) and distance (m)
+    function destPoint(a, bearing, distance){
+      const R = 6371000;
+      const δ = distance / R;
+      const θ = toRad(bearing);
+      const φ1 = toRad(a.lat);
+      const λ1 = toRad(a.lng);
+
+      const φ2 = Math.asin(Math.sin(φ1)*Math.cos(δ) + Math.cos(φ1)*Math.sin(δ)*Math.cos(θ));
+      const λ2 = λ1 + Math.atan2(Math.sin(θ)*Math.sin(δ)*Math.cos(φ1), Math.cos(δ) - Math.sin(φ1)*Math.sin(φ2));
+
+      return { lat: toDeg(φ2), lng: (toDeg(λ2)+540)%360 - 180 };
+    }
+
+    // Simple logger (UI)
+    function logMsg(s){
+      const el = document.getElementById('log');
+      const t = new Date().toLocaleTimeString();
+      const prev = el.textContent.trim();
+      const newLine = `[${t}] ${s}`;
+      el.textContent = (prev === '—' ? '' : prev + '\n') + newLine;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    // ========== Map setup ==========
+    const map = L.map('map', { zoomControl: true }).setView([35.7, 51.4], 12); // default Tehran-ish
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Layers and polylines
+    const rawLayer = L.layerGroup().addTo(map);
+    const filteredLayer = L.layerGroup().addTo(map);
+
+    let rawPolyline = L.polyline([], { weight:3, opacity:0.8, color: '#ff4d4f' }).addTo(rawLayer);
+    let filteredPolyline = L.polyline([], { weight:4, opacity:0.9, color: '#1890ff' }).addTo(filteredLayer);
+
+    let lastAccepted = null; // {lat,lng}
+    let smoothed = null; // for exponential smoothing {lat,lng}
+    let watchId = null;
+
+    // ========== Controls ==========
+    const thresholdInput = document.getElementById('threshold');
+    const thresholdValue = document.getElementById('thresholdValue');
+    thresholdValue.textContent = thresholdInput.value;
+    thresholdInput.addEventListener('input', ()=> thresholdValue.textContent = thresholdInput.value);
+
+    const sFactorInput = document.getElementById('sFactor');
+    const sFactorValue = document.getElementById('sFactorValue');
+    sFactorValue.textContent = sFactorInput.value;
+    sFactorInput.addEventListener('input', ()=> sFactorValue.textContent = sFactorInput.value);
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    const statusEl = document.getElementById('status');
+    const rawInfo = document.getElementById('rawInfo');
+    const filteredInfo = document.getElementById('filteredInfo');
+    const accuracyInfo = document.getElementById('accuracyInfo');
+    const distInfo = document.getElementById('distInfo');
+
+    document.getElementById('mode').addEventListener('change', e => {
+      logMsg(`حالت فیلتر تغییر کرد به: ${e.target.value}`);
+    });
+
+    document.getElementById('useSmoothing').addEventListener('change', e=>{
+      logMsg(`هموارسازی نمایی ${e.target.checked ? 'فعال' : 'غیرفعال'} شد`);
+    });
+
+    startBtn.addEventListener('click', startTracking);
+    stopBtn.addEventListener('click', stopTracking);
+    clearBtn.addEventListener('click', clearPaths);
+
+    // ========== Geolocation handling ==========
+    function startTracking(){
+      if(!('geolocation' in navigator)){
+        alert('Geolocation API در این مرورگر در دسترس نیست.');
+        return;
+      }
+
+      // options: enableHighAccuracy true for better readings (but may be slower / more battery)
+      watchId = navigator.geolocation.watchPosition(onPosition, onError, {
+        enableHighAccuracy: true,
+        maximumAge: 500, // ms
+        timeout: 10000
+      });
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      statusEl.textContent = 'در حال ردیابی...';
+      logMsg('شروع ردیابی GPS');
+    }
+
+    function stopTracking(){
+      if(watchId !== null){
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        statusEl.textContent = 'توقف شد';
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        logMsg('ردیابی متوقف شد');
+      }
+    }
+
+    function clearPaths(){
+      rawPolyline.setLatLngs([]);
+      filteredPolyline.setLatLngs([]);
+      rawLayer.clearLayers();
+      filteredLayer.clearLayers();
+      lastAccepted = null;
+      smoothed = null;
+      document.getElementById('log').textContent = '—';
+      logMsg('مسیرها پاک شدند');
+    }
+
+    function onError(err){
+      statusEl.textContent = 'خطا در دریافت GPS: ' + err.message;
+      logMsg('خطای GPS: ' + err.message);
+    }
+
+    function onPosition(pos){
+      // Extract coords
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const accuracy = pos.coords.accuracy || 0;
+      const rawPoint = { lat: lat, lng: lng };
+
+      // UI show raw
+      rawInfo.textContent = `GPS خام: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      accuracyInfo.textContent = `دقت (accuracy): ${accuracy.toFixed(1)} متر`;
+
+      // Add raw marker/line
+      L.circleMarker([lat,lng], { radius:4, color:'#ff4d4f', fill:true }).addTo(rawLayer);
+      const rp = rawPolyline.getLatLngs();
+      rp.push([lat,lng]);
+      rawPolyline.setLatLngs(rp);
+
+      // Determine effective threshold (dynamic)
+      const userThreshold = parseFloat(thresholdInput.value);
+      const effectiveThreshold = Math.max(userThreshold, accuracy * 1.5);
+
+      // compute distance to lastAccepted
+      const dist = lastAccepted ? distanceMeters(lastAccepted, rawPoint) : 0;
+      distInfo.textContent = `فاصله از آخرین قبول‌شده: ${lastAccepted ? dist.toFixed(1) + ' متر' : '—'}`;
+
+      // Decide accept / clamp / reject
+      const mode = document.getElementById('mode').value;
+      let acceptedPoint = null;
+      if(!lastAccepted){
+        // first point: accept
+        acceptedPoint = rawPoint;
+        logMsg('نقطه شروع قبول شد');
+      } else if(dist <= effectiveThreshold){
+        // within threshold -> accept raw
+        acceptedPoint = rawPoint;
+      } else {
+        // jump larger than threshold
+        if(mode === 'reject'){
+          // drop this reading (do not update lastAccepted)
+          logMsg(`جهش بزرگ (${dist.toFixed(1)}m) — رد شد (آستانه ${effectiveThreshold.toFixed(1)}m)`);
+          // still update UI filteredInfo to show lastAccepted
+          filteredInfo.textContent = `فیلترشده: ${lastAccepted.lat.toFixed(6)}, ${lastAccepted.lng.toFixed(6)} (نقطه قبلی)`;
+          return; // ignore this reading
+        } else {
+          // clamp: compute point at threshold distance along bearing
+          const b = bearingDeg(lastAccepted, rawPoint);
+          acceptedPoint = destPoint(lastAccepted, b, effectiveThreshold);
+          logMsg(`جهش بزرگ (${dist.toFixed(1)}m) — کِلمپ شد به ${effectiveThreshold.toFixed(1)}m در جهت ${b.toFixed(0)}°`);
+        }
+      }
+
+      // Optional exponential smoothing
+      if(document.getElementById('useSmoothing').checked){
+        const alpha = parseFloat(sFactorInput.value);
+        if(!smoothed){
+          smoothed = acceptedPoint;
+        } else {
+          // lat/lng separately
+          smoothed = {
+            lat: smoothed.lat + alpha * (acceptedPoint.lat - smoothed.lat),
+            lng: smoothed.lng + alpha * (acceptedPoint.lng - smoothed.lng)
+          };
+        }
+        // use smoothed as the point to append/lastAccepted
+        lastAccepted = smoothed;
+      } else {
+        lastAccepted = acceptedPoint;
+      }
+
+      // Update filtered layer & map
+      L.circleMarker([lastAccepted.lat, lastAccepted.lng], { radius:5, color:'#1890ff', fill:true }).addTo(filteredLayer);
+      filteredLayer.addLayer(L.circle([lastAccepted.lat, lastAccepted.lng], { radius: Math.max(accuracy, 5), color:'#1890ff', opacity:0.15 }));
+      const fp = filteredPolyline.getLatLngs();
+      fp.push([lastAccepted.lat, lastAccepted.lng]);
+      filteredPolyline.setLatLngs(fp);
+
+      filteredInfo.textContent = `فیلترشده: ${lastAccepted.lat.toFixed(6)}, ${lastAccepted.lng.toFixed(6)}`;
+      // center map on accepted point (but don't be too jumpy if many updates)
+      map.panTo([lastAccepted.lat, lastAccepted.lng], { animate: true, duration: 0.6 });
+
+      // show anchor marker
+      // remove previous anchor marker if existed by managing a special layer
+      if(window._anchorMarker) window._anchorMarker.remove();
+      window._anchorMarker = L.circleMarker([lastAccepted.lat,lastAccepted.lng], { radius:7, color:'#52c41a', fill:true }).addTo(filteredLayer);
+    }
+
+    // init small log
+    logMsg('اپ آماده. برای شروع روی "شروع ردیابی" بزنید.');
+
+    // On load, try to get last known position (optional)
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(function(p){
+        const lat = p.coords.latitude, lng = p.coords.longitude;
+        map.setView([lat,lng], 15);
+        logMsg('موقعیت اولیه بارگذاری شد از GPS');
+      }, function(){}, { maximumAge: 60000 });
+    }
+
+    // prevent accidental leave
+    window.addEventListener('beforeunload', (e) => {
+      if(watchId !== null){
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
+  </script>
+</body>
+</html>
