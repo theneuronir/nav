@@ -143,7 +143,7 @@
       el.textContent = (prev === '—' ? '' : prev + '\n') + newLine;
       el.scrollTop = el.scrollHeight;
     }
-
+    document.addEventListener("DOMContentLoaded", function() {
     // ========== Map setup ==========
     const map = L.map('map', { zoomControl: true }).setView([35.7, 51.4], 12); // default Tehran-ish
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -347,6 +347,7 @@
         e.returnValue = '';
       }
     });
+})
 
   </script>
 </body>
