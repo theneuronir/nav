@@ -3,14 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>مسیریاب ساده — فیلتر GPS دینامیک</title>
+  <title>مسیریاب با انتخاب مقصد و محاسبه بهترین مسیر</title>
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
+  <!-- Leaflet Routing Machine CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+
   <style>
     body { margin:0; font-family: system-ui, Tahoma, Arial, "Helvetica Neue", sans-serif; direction: rtl; }
-    #app { display: grid; grid-template-columns: 1fr 380px; gap: 8px; height: 100vh; padding: 8px; box-sizing: border-box; }
+    #app { display: grid; grid-template-columns: 1fr 420px; gap: 8px; height: 100vh; padding: 8px; box-sizing: border-box; }
     #map { width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
     #panel { background:#fff; border-radius:8px; padding:12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); overflow:auto; }
     h1 { margin:0 0 8px 0; font-size:18px; }
@@ -28,6 +31,10 @@
     .filtered { background:#1890ff; }
     .anchor { background:#52c41a; }
     footer { margin-top:12px; font-size:12px; color:#666; }
+    #routesList { margin-top:8px; max-height:180px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px; }
+    .routeItem { padding:8px; border-radius:6px; cursor:pointer; margin-bottom:6px; border:1px solid transparent; }
+    .routeItem:hover { background:#fafafa; border-color:#eee; }
+    .routeItem.selected { background:#e6f7ff; border-color:#91d5ff; }
     @media (max-width:900px) {
       #app { grid-template-columns: 1fr; grid-auto-rows: 60vh auto; }
       #panel { height: auto; max-height:40vh; }
@@ -39,14 +46,14 @@
     <div id="map"></div>
 
     <div id="panel">
-      <h1>مسیریاب ساده — فیلتر GPS دینامیک</h1>
+      <h1>مسیریاب — انتخاب مقصد و پیشنهاد بهترین مسیر</h1>
 
       <div class="info">
         <div class="row">
           <strong>حالت فیلتر:</strong>
           <select id="mode">
-            <option value="reject">رد جهش‌های بزرگ (Reject)</option>
-            <option value="clamp">کِلمپ کردن به آستانه (Clamp)</option>
+            <option value="reject">رد جهش‌ها (Reject)</option>
+            <option value="clamp">کِلمپ به آستانه (Clamp)</option>
           </select>
         </div>
 
@@ -54,13 +61,13 @@
         <input id="threshold" type="range" min="10" max="2000" step="10" value="200">
 
         <div class="row">
-          <label><input id="useSmoothing" type="checkbox"> فعال کردن هموارسازی نمایی (Exponential Smoothing)</label>
+          <label><input id="useSmoothing" type="checkbox"> فعال کردن هموارسازی نمایی</label>
         </div>
 
         <label for="sFactor">نرخ هموارسازی (alpha: 0-1): <span id="sFactorValue">0.25</span></label>
         <input id="sFactor" type="range" min="0" max="1" step="0.01" value="0.25">
 
-        <div class="row">
+        <div class="row" style="margin-top:8px;">
           <button id="startBtn">شروع ردیابی</button>
           <button id="stopBtn" disabled>توقف ردیابی</button>
           <button id="clearBtn">پاک کردن مسیرها</button>
@@ -76,16 +83,32 @@
           <div class="small" id="distInfo">فاصله از آخرین قبول‌شده: —</div>
         </div>
 
-        <div class="legend">
-          <div><span class="dot raw"></span> نقاط خام</div>
-          <div><span class="dot filtered"></span> نقاط فیلترشده</div>
-          <div><span class="dot anchor"></span> آخرین نقطه قبول‌شده</div>
+        <label style="margin-top:10px">نحوهٔ حمل‌ونقل:</label>
+        <select id="profile">
+          <option value="driving">خودرو (driving)</option>
+          <option value="cycling">دوچرخه (cycling)</option>
+          <option value="walking">پیاده (walking)</option>
+        </select>
+
+        <div style="margin-top:10px;">
+          <small>برای مشخص کردن مقصد، روی نقشه کلیک کن یا از دکمهٔ <em>Set to center</em> استفاده کن.</small>
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <button id="clearDestBtn">پاک کردن مقصد</button>
+          <button id="setCenterDestBtn">Set destination = نقشه مرکز</button>
+          <button id="calcRouteBtn">محاسبه مسیر</button>
+        </div>
+
+        <div style="margin-top:8px;">
+          <strong>مسیرهای پیشنهادی:</strong>
+          <div id="routesList">—</div>
         </div>
 
         <label style="margin-top:8px">رویدادها / لاگ:</label>
         <pre id="log" aria-live="polite">—</pre>
 
-        <footer>نکته: برای کار صحیح، مجوز موقعیت را به مرورگر بدهید. این صفحه از <em>Geolocation API</em> و <em>Leaflet</em> استفاده می‌کند.</footer>
+        <footer>این نسخه برای تست از سرویس عمومی OSRM استفاده می‌کند. برای ترافیک/پایداری بهتر از سرویس‌های دارای API Key استفاده کن.</footer>
       </div>
     </div>
   </div>
@@ -93,12 +116,14 @@
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+  <!-- Leaflet Routing Machine -->
+  <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.min.js"></script>
+
   <script>
     // ========== Helpers ==========
     function toRad(d){ return d * Math.PI / 180; }
     function toDeg(r){ return r * 180 / Math.PI; }
 
-    // Haversine distance (meters)
     function distanceMeters(a, b){
       if(!a || !b) return Infinity;
       const R = 6371000;
@@ -111,14 +136,12 @@
       return R * c;
     }
 
-    // Bearing from a to b (degrees)
     function bearingDeg(a, b){
       const y = Math.sin(toRad(b.lng - a.lng)) * Math.cos(toRad(b.lat));
       const x = Math.cos(toRad(a.lat))*Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.cos(toRad(b.lng - a.lng));
       return (toDeg(Math.atan2(y, x)) + 360) % 360;
     }
 
-    // Destination point from a, given bearing (deg) and distance (m)
     function destPoint(a, bearing, distance){
       const R = 6371000;
       const δ = distance / R;
@@ -132,7 +155,6 @@
       return { lat: toDeg(φ2), lng: (toDeg(λ2)+540)%360 - 180 };
     }
 
-    // Simple logger (UI)
     function logMsg(s){
       const el = document.getElementById('log');
       const t = new Date().toLocaleTimeString();
@@ -141,24 +163,39 @@
       el.textContent = (prev === '—' ? '' : prev + '\n') + newLine;
       el.scrollTop = el.scrollHeight;
     }
-    document.addEventListener("DOMContentLoaded", function() {
-    // ========== Map setup ==========
-    const map = L.map('map', { zoomControl: true }).setView([35.7, 51.4], 12); // default Tehran-ish
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap'
-    }).addTo(map);
 
-    // Layers and polylines
+    function msToTime(ms){
+      const totalSec = Math.round(ms/1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      if(h>0) return `${h}س ${m}د`;
+      if(m>0) return `${m}د ${s}ث`;
+      return `${s} ث`;
+    }
+
+    // ========== Map setup ==========
+    const map = L.map('map', { zoomControl: true }).setView([35.7, 51.4], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+
+    // Layers
     const rawLayer = L.layerGroup().addTo(map);
     const filteredLayer = L.layerGroup().addTo(map);
-
     let rawPolyline = L.polyline([], { weight:3, opacity:0.8, color: '#ff4d4f' }).addTo(rawLayer);
     let filteredPolyline = L.polyline([], { weight:4, opacity:0.9, color: '#1890ff' }).addTo(filteredLayer);
 
-    let lastAccepted = null; // {lat,lng}
-    let smoothed = null; // for exponential smoothing {lat,lng}
+    let lastAccepted = null;
+    let smoothed = null;
     let watchId = null;
+
+    // Destination
+    let destMarker = null;
+    let destLatLng = null;
+
+    // Routing control (we'll create on demand)
+    let routingControl = null;
+    // we'll keep current alternatives data
+    let currentRoutes = [];
 
     // ========== Controls ==========
     const thresholdInput = document.getElementById('threshold');
@@ -181,32 +218,46 @@
     const accuracyInfo = document.getElementById('accuracyInfo');
     const distInfo = document.getElementById('distInfo');
 
-    document.getElementById('mode').addEventListener('change', e => {
-      logMsg(`حالت فیلتر تغییر کرد به: ${e.target.value}`);
-    });
+    const clearDestBtn = document.getElementById('clearDestBtn');
+    const setCenterDestBtn = document.getElementById('setCenterDestBtn');
+    const calcRouteBtn = document.getElementById('calcRouteBtn');
+    const routesList = document.getElementById('routesList');
 
-    document.getElementById('useSmoothing').addEventListener('change', e=>{
-      logMsg(`هموارسازی نمایی ${e.target.checked ? 'فعال' : 'غیرفعال'} شد`);
+    document.getElementById('mode').addEventListener('change', e => {
+      logMsg(`حالت فیلتر: ${e.target.value}`);
     });
 
     startBtn.addEventListener('click', startTracking);
     stopBtn.addEventListener('click', stopTracking);
     clearBtn.addEventListener('click', clearPaths);
+    clearDestBtn.addEventListener('click', clearDestination);
+    setCenterDestBtn.addEventListener('click', setDestinationToCenter);
+    calcRouteBtn.addEventListener('click', calculateRoute);
 
-    // ========== Geolocation handling ==========
+    document.getElementById('useSmoothing').addEventListener('change', e=>{
+      logMsg(`هموارسازی ${e.target.checked ? 'فعال' : 'غیرفعال'}`);
+    });
+
+    // allow map click to set destination
+    map.on('click', function(e){
+      setDestination(e.latlng.lat, e.latlng.lng);
+    });
+
+    // ========== Geolocation handling (same filtering logic) ==========
     function startTracking(){
       if(!('geolocation' in navigator)){
         alert('Geolocation API در این مرورگر در دسترس نیست.');
         return;
       }
-
-      // options: enableHighAccuracy true for better readings (but may be slower / more battery)
+      if(watchId !== null) {
+        logMsg('ردیابی قبلاً شروع شده.');
+        return;
+      }
       watchId = navigator.geolocation.watchPosition(onPosition, onError, {
         enableHighAccuracy: true,
-        maximumAge: 500, // ms
+        maximumAge: 500,
         timeout: 10000
       });
-
       startBtn.disabled = true;
       stopBtn.disabled = false;
       statusEl.textContent = 'در حال ردیابی...';
@@ -241,75 +292,59 @@
     }
 
     function onPosition(pos){
-      // Extract coords
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       const accuracy = pos.coords.accuracy || 0;
       const rawPoint = { lat: lat, lng: lng };
 
-      // UI show raw
       rawInfo.textContent = `GPS خام: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
       accuracyInfo.textContent = `دقت (accuracy): ${accuracy.toFixed(1)} متر`;
 
-      // Add raw marker/line
       L.circleMarker([lat,lng], { radius:4, color:'#ff4d4f', fill:true }).addTo(rawLayer);
       const rp = rawPolyline.getLatLngs();
       rp.push([lat,lng]);
       rawPolyline.setLatLngs(rp);
 
-      // Determine effective threshold (dynamic)
       const userThreshold = parseFloat(thresholdInput.value);
       const effectiveThreshold = Math.max(userThreshold, accuracy * 1.5);
 
-      // compute distance to lastAccepted
       const dist = lastAccepted ? distanceMeters(lastAccepted, rawPoint) : 0;
       distInfo.textContent = `فاصله از آخرین قبول‌شده: ${lastAccepted ? dist.toFixed(1) + ' متر' : '—'}`;
 
-      // Decide accept / clamp / reject
       const mode = document.getElementById('mode').value;
       let acceptedPoint = null;
       if(!lastAccepted){
-        // first point: accept
         acceptedPoint = rawPoint;
         logMsg('نقطه شروع قبول شد');
       } else if(dist <= effectiveThreshold){
-        // within threshold -> accept raw
         acceptedPoint = rawPoint;
       } else {
-        // jump larger than threshold
         if(mode === 'reject'){
-          // drop this reading (do not update lastAccepted)
           logMsg(`جهش بزرگ (${dist.toFixed(1)}m) — رد شد (آستانه ${effectiveThreshold.toFixed(1)}m)`);
-          // still update UI filteredInfo to show lastAccepted
           filteredInfo.textContent = `فیلترشده: ${lastAccepted.lat.toFixed(6)}, ${lastAccepted.lng.toFixed(6)} (نقطه قبلی)`;
-          return; // ignore this reading
+          return;
         } else {
-          // clamp: compute point at threshold distance along bearing
           const b = bearingDeg(lastAccepted, rawPoint);
           acceptedPoint = destPoint(lastAccepted, b, effectiveThreshold);
           logMsg(`جهش بزرگ (${dist.toFixed(1)}m) — کِلمپ شد به ${effectiveThreshold.toFixed(1)}m در جهت ${b.toFixed(0)}°`);
         }
       }
 
-      // Optional exponential smoothing
       if(document.getElementById('useSmoothing').checked){
         const alpha = parseFloat(sFactorInput.value);
         if(!smoothed){
           smoothed = acceptedPoint;
         } else {
-          // lat/lng separately
           smoothed = {
             lat: smoothed.lat + alpha * (acceptedPoint.lat - smoothed.lat),
             lng: smoothed.lng + alpha * (acceptedPoint.lng - smoothed.lng)
           };
         }
-        // use smoothed as the point to append/lastAccepted
         lastAccepted = smoothed;
       } else {
         lastAccepted = acceptedPoint;
       }
 
-      // Update filtered layer & map
       L.circleMarker([lastAccepted.lat, lastAccepted.lng], { radius:5, color:'#1890ff', fill:true }).addTo(filteredLayer);
       filteredLayer.addLayer(L.circle([lastAccepted.lat, lastAccepted.lng], { radius: Math.max(accuracy, 5), color:'#1890ff', opacity:0.15 }));
       const fp = filteredPolyline.getLatLngs();
@@ -317,24 +352,171 @@
       filteredPolyline.setLatLngs(fp);
 
       filteredInfo.textContent = `فیلترشده: ${lastAccepted.lat.toFixed(6)}, ${lastAccepted.lng.toFixed(6)}`;
-      // center map on accepted point (but don't be too jumpy if many updates)
       map.panTo([lastAccepted.lat, lastAccepted.lng], { animate: true, duration: 0.6 });
 
-      // show anchor marker
-      // remove previous anchor marker if existed by managing a special layer
       if(window._anchorMarker) window._anchorMarker.remove();
       window._anchorMarker = L.circleMarker([lastAccepted.lat,lastAccepted.lng], { radius:7, color:'#52c41a', fill:true }).addTo(filteredLayer);
     }
 
-    // init small log
-    logMsg('اپ آماده. برای شروع روی "شروع ردیابی" بزنید.');
+    // ========== Destination helpers ==========
+    function setDestination(lat, lng){
+      destLatLng = { lat: lat, lng: lng };
+      if(destMarker) destMarker.remove();
+      destMarker = L.marker([lat,lng], { draggable: true }).addTo(map);
+      destMarker.on('dragend', function(e){
+        const p = e.target.getLatLng();
+        destLatLng = { lat: p.lat, lng: p.lng };
+        logMsg(`مقصد جا‌به‌جا شد به ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`);
+      });
+      logMsg(`مقصد تنظیم شد: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    }
 
-    // On load, try to get last known position (optional)
+    function clearDestination(){
+      if(destMarker) { destMarker.remove(); destMarker = null; destLatLng = null; }
+      routesList.innerHTML = '—';
+      clearRoutingControl();
+      logMsg('مقصد پاک شد');
+    }
+
+    function setDestinationToCenter(){
+      const c = map.getCenter();
+      setDestination(c.lat, c.lng);
+    }
+
+    // ========== Routing ==========
+    function clearRoutingControl(){
+      if(routingControl){
+        map.removeControl(routingControl);
+        routingControl = null;
+      }
+      currentRoutes = [];
+    }
+
+    async function calculateRoute(){
+      if(!destLatLng){
+        alert('ابتدا مقصد را روی نقشه مشخص کن.');
+        return;
+      }
+
+      // get origin: lastAccepted or one-time current position
+      let origin = lastAccepted;
+      if(!origin){
+        try {
+          const p = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy:true, timeout:10000 }));
+          origin = { lat: p.coords.latitude, lng: p.coords.longitude };
+          logMsg('از موقعیت فعلی به‌عنوان مبدا استفاده شد');
+        } catch (e) {
+          alert('نقطهٔ مرجع نداریم (ردیابی فعال نیست و موقعیت فعلی قابل دریافت نیست). ابتدا ردیابی را فعال کن یا موقعیت را بده.');
+          logMsg('خطا در دریافت موقعیت مبدأ: ' + (e.message || e));
+          return;
+        }
+      }
+
+      // remove previous routing
+      clearRoutingControl();
+
+      // profile
+      const profile = document.getElementById('profile').value || 'driving';
+
+      // Use Leaflet Routing Machine with OSRM demo server and alternatives
+      // Note: OSRM profile endpoints: /route/v1/{profile}/{lon,lat}; alternatives via options
+      routingControl = L.Routing.control({
+        waypoints: [
+          L.latLng(origin.lat, origin.lng),
+          L.latLng(destLatLng.lat, destLatLng.lng)
+        ],
+        router: L.Routing.osrmv1({
+          serviceUrl: `https://router.project-osrm.org/route/v1`,
+          profile: profile,
+          // We'll request alternatives by using the 'alternatives' param in options below when building url
+        }),
+        routeWhileDragging: false,
+        fitSelectedRoute: true,
+        showAlternatives: true,
+        options: {
+          alternatives: true,
+          // ask for up to 3 alternatives
+          alternatives: 3
+        },
+        createMarker: function(i, wp, nWps) {
+          // Only keep origin/destination markers (we already show them separately)
+          if (i === 0) {
+            return L.circleMarker(wp.latLng, { radius:6, color:'#52c41a', fill:true }).bindPopup('مبدأ');
+          } else if (i === nWps-1) {
+            return L.circleMarker(wp.latLng, { radius:6, color:'#fa8c16', fill:true }).bindPopup('مقصد');
+          } else {
+            return null;
+          }
+        }
+      }).addTo(map);
+
+      // After routes are found, populate the list
+      routingControl.on('routesfound', function(e){
+        const routes = e.routes || [];
+        currentRoutes = routes;
+        renderRoutesList(routes);
+        if(routes.length>0){
+          const best = routes[0];
+          const distKm = (best.summary.totalDistance/1000).toFixed(2);
+          const t = msToTime(best.summary.totalTime * 1000);
+          logMsg(`مسیر یافت شد — فاصله: ${distKm} km — زمان تخمینی: ${t}`);
+        } else {
+          logMsg('هیچ مسیری یافت نشد');
+        }
+      });
+
+      routingControl.on('routingerror', function(e){
+        logMsg('خطا در مسیریابی: ' + (e.error && e.error.message ? e.error.message : JSON.stringify(e)));
+        alert('خطا در مسیریابی، نگاهی به لاگ بیانداز.');
+      });
+    }
+
+    function renderRoutesList(routes){
+      if(!routes || routes.length===0){ routesList.innerHTML = '—'; return; }
+      routesList.innerHTML = '';
+      routes.forEach((r, idx) => {
+        const dKm = (r.summary.totalDistance / 1000).toFixed(2);
+        const timeStr = msToTime(r.summary.totalTime * 1000);
+        const item = document.createElement('div');
+        item.className = 'routeItem' + (idx===0 ? ' selected' : '');
+        item.innerHTML = `<strong>${idx===0 ? 'پیشنهاد اول (بهترین)' : 'پیشنهاد ' + (idx+1)}</strong>
+                          <div class="small">فاصله: ${dKm} کیلومتر — زمان: ${timeStr}</div>`;
+        item.addEventListener('click', () => {
+          selectRoute(idx);
+          // highlight visual selection
+          Array.from(routesList.children).forEach((c,i)=> c.classList.toggle('selected', i===idx));
+        });
+        routesList.appendChild(item);
+      });
+    }
+
+    function selectRoute(index){
+      if(!routingControl || !currentRoutes || !currentRoutes[index]) return;
+      // Leaflet Routing Machine supports setRoute (clearRoutes then add selected)
+      // But easiest: call setWaypoints again with option to set route index? LRM lacks direct setSelectedRoute index API.
+      // Instead, we'll manually draw selected route polyline and remove other ones.
+      // Remove existing selected polyline if exists
+      if(window._selectedRouteLayer) { map.removeLayer(window._selectedRouteLayer); window._selectedRouteLayer = null; }
+      const r = currentRoutes[index];
+      const coords = r.coordinates.map(c => [c.lat, c.lng]);
+      window._selectedRouteLayer = L.polyline(coords, { color:'#2f54eb', weight:6, opacity:0.9 }).addTo(map);
+      // zoom to route bounds
+      map.fitBounds(window._selectedRouteLayer.getBounds(), { padding:[40,40] });
+
+      // show summary
+      const distKm = (r.summary.totalDistance/1000).toFixed(2);
+      const timeStr = msToTime(r.summary.totalTime * 1000);
+      logMsg(`مسیر انتخاب شد: شماره ${index+1} — ${distKm} km — ${timeStr}`);
+      // optionally, show turn-by-turn? LRM has instructions in route.instructions if included.
+      // Remove the default control's route lines so we don't have duplicates
+      // (LRM draws its own route; keep our highlighted one)
+    }
+
+    // try to set initial view from last known pos
     if(navigator.geolocation){
       navigator.geolocation.getCurrentPosition(function(p){
-        const lat = p.coords.latitude, lng = p.coords.longitude;
-        map.setView([lat,lng], 15);
-        logMsg('موقعیت اولیه بارگذاری شد از GPS');
+        map.setView([p.coords.latitude, p.coords.longitude], 15);
+        logMsg('موقعیت اولیه از GPS بارگذاری شد');
       }, function(){}, { maximumAge: 60000 });
     }
 
@@ -345,7 +527,9 @@
         e.returnValue = '';
       }
     });
-})
+
+    // initial message
+    logMsg('اپ آماده است. مقصد را روی نقشه کلیک کن، سپس "محاسبه مسیر" را بزن.');
 
   </script>
 </body>
