@@ -68,6 +68,10 @@
         <input id="sFactor" type="range" min="0" max="1" step="0.01" value="0.25">
 
         <div class="row" style="margin-top:8px;">
+          <button id="toggleFollowBtn">خاموش کردن دنبال‌کردن نقشه</button>
+        </div>
+
+        <div class="row" style="margin-top:8px;">
           <button id="startBtn">شروع ردیابی</button>
           <button id="stopBtn" disabled>توقف ردیابی</button>
           <button id="clearBtn">پاک کردن مسیرها</button>
@@ -197,6 +201,8 @@
     // we'll keep current alternatives data
     let currentRoutes = [];
 
+    let followUser = true;
+
     // ========== Controls ==========
     const thresholdInput = document.getElementById('threshold');
     const thresholdValue = document.getElementById('thresholdValue');
@@ -222,6 +228,14 @@
     const setCenterDestBtn = document.getElementById('setCenterDestBtn');
     const calcRouteBtn = document.getElementById('calcRouteBtn');
     const routesList = document.getElementById('routesList');
+
+    const toggleFollowBtn = document.getElementById('toggleFollowBtn');
+
+    toggleFollowBtn.addEventListener('click', () => {
+      followUser = !followUser;
+      toggleFollowBtn.textContent = followUser ? 'خاموش کردن دنبال‌کردن نقشه' : 'روشن کردن دنبال‌کردن نقشه';
+      logMsg(`دنبال‌کردن نقشه ${followUser ? 'فعال' : 'غیرفعال'} شد`);
+    });
 
     document.getElementById('mode').addEventListener('change', e => {
       logMsg(`حالت فیلتر: ${e.target.value}`);
@@ -352,7 +366,9 @@
       filteredPolyline.setLatLngs(fp);
 
       filteredInfo.textContent = `فیلترشده: ${lastAccepted.lat.toFixed(6)}, ${lastAccepted.lng.toFixed(6)}`;
-      map.panTo([lastAccepted.lat, lastAccepted.lng], { animate: true, duration: 0.6 });
+      if (followUser) {
+        map.panTo([lastAccepted.lat, lastAccepted.lng], { animate: true, duration: 0.6 });
+      }
 
       if(window._anchorMarker) window._anchorMarker.remove();
       window._anchorMarker = L.circleMarker([lastAccepted.lat,lastAccepted.lng], { radius:7, color:'#52c41a', fill:true }).addTo(filteredLayer);
